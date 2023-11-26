@@ -11,6 +11,11 @@ import subprocess
 import random
 import imgaug as ia
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.ticker import NullLocator
+import contextlib
+
 
 def provide_determinism(seed=42):
     random.seed(seed)
@@ -396,3 +401,84 @@ def print_environment_info():
         print(f"Current Commit Hash: {subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], stderr=subprocess.DEVNULL).decode('ascii').strip()}")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("No git or repo found")
+
+
+
+def draw_gt_bboxes(image, detections, classes, figsize=(10,10)):
+    img_height, img_width, _ = image.shape
+    image = np.clip(image, 0, 1) if image.dtype == np.float32 else np.clip(image, 0, 255)
+
+    plt.figure(figsize=figsize)
+    
+    fig, ax = plt.subplots(1)
+    ax.imshow(image)
+
+    for detection in detections:
+        x_center, y_center, w_box, h_box = detection[:4]
+        x_min = int((x_center - w_box / 2) * img_width)
+        y_min = int((y_center - h_box / 2) * img_height)
+        x_max = int((x_center + w_box / 2) * img_width)
+        y_max = int((y_center + h_box / 2) * img_height)
+
+        bbox = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, linewidth=2, edgecolor='red', facecolor='none')
+        ax.add_patch(bbox)
+        label_text = f"{classes[int(detection[5])] if len(detection) > 5 else ''} {detection[4]:.2f}" if len(detection) > 4 else ""
+        plt.text(x_min, y_min, s=label_text, color='white', verticalalignment='top', bbox={'color': 'red', 'pad': 0})
+
+    plt.axis('off')
+    plt.show()
+
+    return fig
+
+
+def get_bboxes_from_model_output(outputs, conf_thres, iou_thres):
+    scaled_bboxes = []
+    for output in outputs:
+        batch_size = output.size(0)
+        grid_size = output.size(2)
+
+        prediction = (
+            output.view(batch_size, 3, 85, grid_size, grid_size)
+            .permute(0, 1, 3, 4, 2)
+            .contiguous()
+        )
+
+        prediction = prediction.view(batch_size, -1, 85)
+
+        scaled_bboxes.append(prediction)
+
+    bboxes = torch.cat(scaled_bboxes, dim=1)
+
+    bboxes = non_max_suppression(bboxes, conf_thres, iou_thres)
+
+    return bboxes
+
+
+def draw_pred_bboxes(image, outputs, img_index, img_size, class_names, conf_thres=0.5, iou_thres=0.5):
+    bboxes = get_bboxes_from_model_output(outputs, conf_thres, iou_thres)
+    
+    img_width, img_height = img_size
+    fig, ax = plt.subplots(1)
+    ax.imshow(image)
+
+    if len(bboxes) > img_index:
+        for bbox in bboxes[img_index]:
+            x1 = int(bbox[0] * img_width)
+            y1 = int(bbox[1] * img_height)
+            x2 = int(bbox[2] * img_width)
+            y2 = int(bbox[3] * img_height)
+
+            box_w = x2 - x1
+            box_h = y2 - y1
+            rect = patches.Rectangle((x1, y1), box_w, box_h, linewidth=2, edgecolor='red', facecolor='none')
+            ax.add_patch(rect)
+
+            conf = bbox[4]
+            cls_pred = bbox[5]
+            label_text = f"{class_names[int(cls_pred)]} {conf:.2f}"
+            plt.text(x1, y1, s=label_text, color='white', verticalalignment='top', bbox={'color': 'red', 'pad': 0})
+
+    plt.axis('off')
+    plt.show()
+
+    return fig

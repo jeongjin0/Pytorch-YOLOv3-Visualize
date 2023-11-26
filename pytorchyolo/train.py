@@ -5,6 +5,7 @@ from __future__ import division
 import os
 import argparse
 import tqdm
+import random
 
 import torch
 from torch.utils.data import DataLoader
@@ -13,6 +14,7 @@ import torch.optim as optim
 from pytorchyolo.models import load_model
 from pytorchyolo.utils.logger import Logger
 from pytorchyolo.utils.utils import to_cpu, load_classes, print_environment_info, provide_determinism, worker_seed_set
+from pytorchyolo.utils.utils import draw_gt_bboxes, draw_pred_bboxes
 from pytorchyolo.utils.datasets import ListDataset
 from pytorchyolo.utils.augmentations import AUGMENTATION_TRANSFORMS
 #from pytorchyolo.utils.transforms import DEFAULT_TRANSFORMS
@@ -158,6 +160,7 @@ def run():
             batches_done = len(dataloader) * epoch + batch_i
 
             imgs = imgs.to(device, non_blocking=True)
+            batch_size = imgs.shape[0]
             targets = targets.to(device)
 
             outputs = model(imgs)
@@ -216,6 +219,19 @@ def run():
             logger.list_of_scalars_summary(tensorboard_log, batches_done)
 
             model.seen += imgs.size(0)
+
+            
+            if batch_i % args.img_log_interval == 0:
+                img_index = random.randint(0, batch_size - 1)
+
+                original_img = imgs[img_index].cpu().numpy().transpose(1, 2, 0)
+                original_bboxes = targets[targets[:, 0] == img_index][:, 2:].cpu().numpy()
+                fig = draw_gt_bboxes(original_img, original_bboxes, class_names)
+                logger.add_figure("train/ground_truth", fig, batches_done)
+
+                original_img = imgs[img_index].cpu().numpy().transpose(1, 2, 0)
+                fig = draw_pred_bboxes(original_img, outputs, img_index, imgs_size, class_names)
+                logger.add_figure("train/predictions", fig, batches_done)
 
         # #############
         # Save progress
