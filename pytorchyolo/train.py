@@ -161,6 +161,7 @@ def run():
             batches_done = len(dataloader) * epoch + batch_i
 
             imgs = imgs.to(device, non_blocking=True)
+            imgs_size = (imgs[0].shape[1], imgs[0].shape[2])
             batch_size = imgs.shape[0]
             targets = targets.to(device)
 
